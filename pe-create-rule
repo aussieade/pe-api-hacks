@@ -1,0 +1,68 @@
+#!/bin/bash
+# 
+# Filename: pe-create-rule
+# Created: Wed Jul  8 19:08:31 2015 (+1000)
+# Version: 0.1.0
+# Author: Ade
+# Description: 
+#   creates ONE rule in a group (NOTE this will remove all other rules)
+#    see https://docs.puppetlabs.com/pe/latest/nc_groups.html and the
+#    whole "Node Classifier Service API" section.
+#
+#    note there is no error checking in this command so use caution and
+#    appropriate quotes
+#
+#    example: pe-create-rule -n $(pe-get-groupid name) and '~' '^test.*'
+#         or: pe-create-rule -f $(pe-get-groupid name) and osfamily '=' Debian
+#
+#    name rules and fact rules seem different although I thought name was just
+#    a fact called name - there's probably some major breakage in this script
+#    if the same applies to other 'facts' I've not yet tested. For ref here's
+#    the difference:
+#
+#    "rule": [
+#      "and",
+#      [
+#        "=",
+#        "name",
+#        "test"
+#      ],
+#      [
+#        "=",
+#        [
+#          "fact",
+#          "ec2_tag_code"
+#        ],
+#        "T1Trusty"
+#      ]
+#    ]
+
+# Change Log:
+# 
+
+HOST=$(grep server /etc/puppetlabs/puppet/classifier.yaml|awk '{print $2}')
+PORT=$(grep port /etc/puppetlabs/puppet/classifier.yaml|awk '{print $2}')
+ 
+CURLCERT="--cert /etc/puppetlabs/puppet/ssl/certs/${HOST}.pem --key /etc/puppetlabs/puppet/ssl/private_keys/${HOST}.pem --cacert /etc/puppetlabs/puppet/ssl/certs/ca.pem"
+ENDPOINT="https://${HOST}:${PORT}/classifier-api/v1"
+
+case "$1" in
+  "-n")
+    shift
+    sudo curl -s -X POST -H 'Content-Type: application/json' ${CURLCERT} -d \
+      '{ "rule": ["'$2'", ["'$3'", "name", "'$4'"]] }' \
+      ${ENDPOINT}/groups/${1} | jq .
+    ;;
+  "-f")
+    shift
+    sudo curl -s -X POST -H 'Content-Type: application/json' ${CURLCERT} -d \
+      '{ "rule": ["'$2'", ["'$4'", ["fact","'$3'"], "'$5'"]] }' \
+      ${ENDPOINT}/groups/${1} | jq .
+    ;;
+  *)
+    echo "usage: $(basename $0) -n <groupid> <cond> <operator> <value>"
+    echo "   or: $(basename $0) -f <groupid> <cond> <fact> <operator> <value>"
+    echo "       -n creates NAME based rule, -f creates FACT based rule"
+    echo " NOTE: this will REMOVE ALL OTHER RULES FROM THE GROUP !"
+    ;;
+esac

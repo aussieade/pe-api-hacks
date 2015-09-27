@@ -1,0 +1,35 @@
+#!/bin/bash
+# 
+# Filename: pe-create-var
+# Created: Wed Jul  8 19:08:31 2015 (+1000)
+# Version: 0.1.0
+# Author: Ade
+# Description: 
+#   creates or updates a variable in a group
+#    see https://docs.puppetlabs.com/pe/latest/nc_groups.html and the
+#    whole "Node Classifier Service API" section.
+#
+#    note there is no error checking in this command so use caution and
+#    appropriate quotes
+#
+#    example: pe-create-var $(pe-get-groupid name) testvar "test content"
+#    treats all var assignments as strings
+
+# Change Log:
+# 
+
+HOST=$(grep server /etc/puppetlabs/puppet/classifier.yaml|awk '{print $2}')
+PORT=$(grep port /etc/puppetlabs/puppet/classifier.yaml|awk '{print $2}')
+ 
+CURLCERT="--cert /etc/puppetlabs/puppet/ssl/certs/${HOST}.pem --key /etc/puppetlabs/puppet/ssl/private_keys/${HOST}.pem --cacert /etc/puppetlabs/puppet/ssl/certs/ca.pem"
+ENDPOINT="https://${HOST}:${PORT}/classifier-api/v1"
+
+if [ $# -ne 3 ];
+then
+  echo "usage: $(basename $0) <groupid> varname \"var value\""
+  echo " NOTE: this will create or update an existing var in the group"
+  exit
+fi
+
+sudo curl -s -X POST -H 'Content-Type: application/json' ${CURLCERT} -d \
+  '{ "variables": { "'"$2"'" : "'"$3"'" }}' ${ENDPOINT}/groups/${1} | jq .

@@ -1,0 +1,28 @@
+#!/bin/bash
+# 
+# Filename: pe-edit-group
+# Created: Wed Jul  8 19:11:05 2015 (+1000)
+# Version: 0.1.0
+# Author: Ade
+# Description: 
+#   edit a group
+
+# Change Log:
+# 
+
+HOST=$(grep server /etc/puppetlabs/puppet/classifier.yaml|awk '{print $2}')
+PORT=$(grep port /etc/puppetlabs/puppet/classifier.yaml|awk '{print $2}')
+ 
+CURLCERT="--cert /etc/puppetlabs/puppet/ssl/certs/${HOST}.pem --key /etc/puppetlabs/puppet/ssl/private_keys/${HOST}.pem --cacert /etc/puppetlabs/puppet/ssl/certs/ca.pem"
+ENDPOINT="https://${HOST}:${PORT}/classifier-api/v1"
+
+if [ "$EDITOR" = "" ]; then
+  EDITOR=vi
+fi
+
+sudo curl -s ${ENDPOINT}/groups/${1} -H 'Content-Type: application/json' \
+  ${CURLCERT} | jq . >/tmp/pe-rule-$$
+${EDITOR} /tmp/pe-rule-$$
+sudo curl -s -X POST -H 'Content-Type: application/json' ${CURLCERT} \
+  ${ENDPOINT}/groups/${1} -d @/tmp/pe-rule-$$ | jq .
+rm /tmp/pe-rule-$$
