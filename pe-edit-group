@@ -1,28 +1,106 @@
 #!/bin/bash
-# 
+#
 # Filename: pe-edit-group
 # Created: Wed Jul  8 19:11:05 2015 (+1000)
 # Version: 0.1.0
 # Author: Ade
-# Description: 
+# Description:
 #   edit a group
 
 # Change Log:
-# 
+#
+set -eu
+
+fetchonly=0
+while getopts :f OPT; do
+    case $OPT in
+    f)
+	fetchonly=1
+	;;
+    *)
+	echo "usage: ${0##*/} [-f] [--] ARGS..."
+	exit 2
+    esac
+done
+shift $(( OPTIND - 1 ))
+OPTIND=1
+
 
 HOST=$(grep server /etc/puppetlabs/puppet/classifier.yaml|awk '{print $2}')
 PORT=$(grep port /etc/puppetlabs/puppet/classifier.yaml|awk '{print $2}')
- 
-CURLCERT="--cert /etc/puppetlabs/puppet/ssl/certs/${HOST}.pem --key /etc/puppetlabs/puppet/ssl/private_keys/${HOST}.pem --cacert /etc/puppetlabs/puppet/ssl/certs/ca.pem"
 ENDPOINT="https://${HOST}:${PORT}/classifier-api/v1"
 
 if [ "$EDITOR" = "" ]; then
-  EDITOR=vi
+    EDITOR=vi
 fi
 
-sudo curl -s ${ENDPOINT}/groups/${1} -H 'Content-Type: application/json' \
-  ${CURLCERT} | jq . >/tmp/pe-rule-$$
-${EDITOR} /tmp/pe-rule-$$
-sudo curl -s -X POST -H 'Content-Type: application/json' ${CURLCERT} \
-  ${ENDPOINT}/groups/${1} -d @/tmp/pe-rule-$$ | jq .
-rm /tmp/pe-rule-$$
+if [[ ! -f ~/.puppetlabs/puppet-access.conf ]]
+then
+    mkdir -p ~/.puppetlabs
+    echo '{"service-url":"https://'$HOST':'$PORT'/rbac-api"}' > ~/.puppetlabs/puppet-access.conf
+fi
+
+# TODO: somehow test if we need to do this
+puppet-access login
+
+TOKEN=$(puppet-access show)
+
+TEMPFILE=/tmp/pe-rule-$$
+
+curl -s -k -X GET                     \
+     -H 'Content-Type: application/json'     \
+     -H "X-Authentication:$TOKEN"            \
+     ${ENDPOINT}/groups/${1} | jq . > $TEMPFILE
+
+if (( fetchonly ))
+then
+    echo "data is in $TEMPFILE"
+    exit
+fi
+
+BEFORESUM="$(sha256sum $TEMPFILE)"
+
+keepediting=1
+while (( keepediting ))
+do
+    ${EDITOR} $TEMPFILE
+
+
+    if jq -e . < $TEMPFILE > /dev/null
+    then
+    keepediting=0
+    else
+    echo "Syntax check returned non-zero exit status."     \
+	 "Press ENTER to re-edit." | fmt
+    read junk
+    fi
+
+    if (( $? != 0 ))
+    then
+    echo "Editor $EDITOR returned non-zero exit status."   \
+	 "Not sending changed file, but"                   \
+	 "I saved it in $TEMPFILE" | fmt
+    exit 1
+    fi
+done
+
+AFTERSUM="$(sha256sum $TEMPFILE)"
+if [[ "$BEFORESUM" == "$AFTERSUM" ]]
+then
+    echo "No change in $TEMPFILE. Not sending."
+    exit 1
+fi
+
+curl -s -k -X POST                           \
+     -H 'Content-Type: application/json'     \
+     -H "X-Authentication:$TOKEN"            \
+     ${ENDPOINT}/groups/${1}                 \
+     -d @$TEMPFILE | jq .
+
+if (( $? == 0 ))
+then
+    rm $TEMPFILE
+else
+    echo "Error when sending changed file." \
+    "Saved it in $TEMPFILE" | fmt
+fi
